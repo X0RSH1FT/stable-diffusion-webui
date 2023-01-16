@@ -23,6 +23,9 @@ import os
 import re
 
 
+up_down_arrow_symbol = "\u2195\ufe0f"
+
+
 def apply_field(field):
     def fun(p, x, xs):
         setattr(p, field, x)
@@ -125,24 +128,21 @@ def apply_upscale_latent_space(p, x, xs):
 
 
 def find_vae(name: str):
-    if name.lower() in ['auto', 'none']:
-        return name
+    if name.lower() in ['auto', 'automatic']:
+        return modules.sd_vae.unspecified
+    if name.lower() == 'none':
+        return None
     else:
-        vae_path = os.path.abspath(os.path.join(paths.models_path, 'VAE'))
-        found = glob.glob(os.path.join(vae_path, f'**/{name}.*pt'), recursive=True)
-        if found:
-            return found[0]
+        choices = [x for x in sorted(modules.sd_vae.vae_dict, key=lambda x: len(x)) if name.lower().strip() in x.lower()]
+        if len(choices) == 0:
+            print(f"No VAE found for {name}; using automatic")
+            return modules.sd_vae.unspecified
         else:
-            return 'auto'
+            return modules.sd_vae.vae_dict[choices[0]]
 
 
 def apply_vae(p, x, xs):
-    if x.lower().strip() == 'none':
-        modules.sd_vae.reload_vae_weights(shared.sd_model, vae_file='None')
-    else:
-        found = find_vae(x)
-        if found:
-            v = modules.sd_vae.reload_vae_weights(shared.sd_model, vae_file=found)
+    modules.sd_vae.reload_vae_weights(shared.sd_model, vae_file=find_vae(x))
 
 
 def apply_styles(p: StableDiffusionProcessingTxt2Img, x: str, _):
@@ -178,76 +178,87 @@ def str_permutations(x):
     """dummy function for specifying it in AxisOption's type when you want to get a list of permutations"""
     return x
 
-AxisOption = namedtuple("AxisOption", ["label", "type", "apply", "format_value", "confirm"])
-AxisOptionImg2Img = namedtuple("AxisOptionImg2Img", ["label", "type", "apply", "format_value", "confirm"])
+AxisOption = namedtuple("AxisOption", ["label", "type", "apply", "format_value", "confirm", "cost"])
+AxisOptionImg2Img = namedtuple("AxisOptionImg2Img", ["label", "type", "apply", "format_value", "confirm", "cost"])
 
 
 axis_options = [
-    AxisOption("Nothing", str, do_nothing, format_nothing, None),
-    AxisOption("Seed", int, apply_field("seed"), format_value_add_label, None),
-    AxisOption("Var. seed", int, apply_field("subseed"), format_value_add_label, None),
-    AxisOption("Var. strength", float, apply_field("subseed_strength"), format_value_add_label, None),
-    AxisOption("Steps", int, apply_field("steps"), format_value_add_label, None),
-    AxisOption("CFG Scale", float, apply_field("cfg_scale"), format_value_add_label, None),
-    AxisOption("Prompt S/R", str, apply_prompt, format_value, None),
-    AxisOption("Prompt order", str_permutations, apply_order, format_value_join_list, None),
-    AxisOption("Sampler", str, apply_sampler, format_value, confirm_samplers),
-    AxisOption("Checkpoint name", str, apply_checkpoint, format_value, confirm_checkpoints),
-    AxisOption("Hypernetwork", str, apply_hypernetwork, format_value, confirm_hypernetworks),
-    AxisOption("Hypernet str.", float, apply_hypernetwork_strength, format_value_add_label, None),
-    AxisOption("Sigma Churn", float, apply_field("s_churn"), format_value_add_label, None),
-    AxisOption("Sigma min", float, apply_field("s_tmin"), format_value_add_label, None),
-    AxisOption("Sigma max", float, apply_field("s_tmax"), format_value_add_label, None),
-    AxisOption("Sigma noise", float, apply_field("s_noise"), format_value_add_label, None),
-    AxisOption("Eta", float, apply_field("eta"), format_value_add_label, None),
-    AxisOption("Clip skip", int, apply_clip_skip, format_value_add_label, None),
-    AxisOption("Denoising", float, apply_field("denoising_strength"), format_value_add_label, None),
-    AxisOption("Hires upscaler", str, apply_field("hr_upscaler"), format_value_add_label, None),
-    AxisOption("Cond. Image Mask Weight", float, apply_field("inpainting_mask_weight"), format_value_add_label, None),
-    AxisOption("VAE", str, apply_vae, format_value_add_label, None),
-    AxisOption("Styles", str, apply_styles, format_value_add_label, None),
+    AxisOption("Nothing", str, do_nothing, format_nothing, None, 0),
+    AxisOption("Seed", int, apply_field("seed"), format_value_add_label, None, 0),
+    AxisOption("Var. seed", int, apply_field("subseed"), format_value_add_label, None, 0),
+    AxisOption("Var. strength", float, apply_field("subseed_strength"), format_value_add_label, None, 0),
+    AxisOption("Steps", int, apply_field("steps"), format_value_add_label, None, 0),
+    AxisOption("CFG Scale", float, apply_field("cfg_scale"), format_value_add_label, None, 0),
+    AxisOption("Prompt S/R", str, apply_prompt, format_value, None, 0),
+    AxisOption("Prompt order", str_permutations, apply_order, format_value_join_list, None, 0),
+    AxisOption("Sampler", str, apply_sampler, format_value, confirm_samplers, 0),
+    AxisOption("Checkpoint name", str, apply_checkpoint, format_value, confirm_checkpoints, 1.0),
+    AxisOption("Hypernetwork", str, apply_hypernetwork, format_value, confirm_hypernetworks, 0.2),
+    AxisOption("Hypernet str.", float, apply_hypernetwork_strength, format_value_add_label, None, 0),
+    AxisOption("Sigma Churn", float, apply_field("s_churn"), format_value_add_label, None, 0),
+    AxisOption("Sigma min", float, apply_field("s_tmin"), format_value_add_label, None, 0),
+    AxisOption("Sigma max", float, apply_field("s_tmax"), format_value_add_label, None, 0),
+    AxisOption("Sigma noise", float, apply_field("s_noise"), format_value_add_label, None, 0),
+    AxisOption("Eta", float, apply_field("eta"), format_value_add_label, None, 0),
+    AxisOption("Clip skip", int, apply_clip_skip, format_value_add_label, None, 0),
+    AxisOption("Denoising", float, apply_field("denoising_strength"), format_value_add_label, None, 0),
+    AxisOption("Hires upscaler", str, apply_field("hr_upscaler"), format_value_add_label, None, 0),
+    AxisOption("Cond. Image Mask Weight", float, apply_field("inpainting_mask_weight"), format_value_add_label, None, 0),
+    AxisOption("VAE", str, apply_vae, format_value_add_label, None, 0.7),
+    AxisOption("Styles", str, apply_styles, format_value_add_label, None, 0),
 ]
 
 
-def draw_xy_grid(p, xs, ys, x_labels, y_labels, cell, draw_legend, include_lone_images):
+def draw_xy_grid(p, xs, ys, x_labels, y_labels, cell, draw_legend, include_lone_images, swap_axes_processing_order):
     ver_texts = [[images.GridAnnotation(y)] for y in y_labels]
     hor_texts = [[images.GridAnnotation(x)] for x in x_labels]
 
     # Temporary list of all the images that are generated to be populated into the grid.
     # Will be filled with empty images for any individual step that fails to process properly
-    image_cache = []
+    image_cache = [None] * (len(xs) * len(ys))
 
     processed_result = None
     cell_mode = "P"
-    cell_size = (1,1)
+    cell_size = (1, 1)
 
     state.job_count = len(xs) * len(ys) * p.n_iter
 
-    for iy, y in enumerate(ys):
+    def process_cell(x, y, ix, iy):
+        nonlocal image_cache, processed_result, cell_mode, cell_size
+
+        state.job = f"{ix + iy * len(xs) + 1} out of {len(xs) * len(ys)}"
+
+        processed: Processed = cell(x, y)
+
+        try:
+            # this dereference will throw an exception if the image was not processed
+            # (this happens in cases such as if the user stops the process from the UI)
+            processed_image = processed.images[0]
+
+            if processed_result is None:
+                # Use our first valid processed result as a template container to hold our full results
+                processed_result = copy(processed)
+                cell_mode = processed_image.mode
+                cell_size = processed_image.size
+                processed_result.images = [Image.new(cell_mode, cell_size)]
+
+            image_cache[ix + iy * len(xs)] = processed_image
+            if include_lone_images:
+                processed_result.images.append(processed_image)
+                processed_result.all_prompts.append(processed.prompt)
+                processed_result.all_seeds.append(processed.seed)
+                processed_result.infotexts.append(processed.infotexts[0])
+        except:
+            image_cache[ix + iy * len(xs)] = Image.new(cell_mode, cell_size)
+
+    if swap_axes_processing_order:
         for ix, x in enumerate(xs):
-            state.job = f"{ix + iy * len(xs) + 1} out of {len(xs) * len(ys)}"
-
-            processed:Processed = cell(x, y)
-            try:
-                # this dereference will throw an exception if the image was not processed
-                # (this happens in cases such as if the user stops the process from the UI)
-                processed_image = processed.images[0]
-                
-                if processed_result is None:
-                    # Use our first valid processed result as a template container to hold our full results
-                    processed_result = copy(processed)
-                    cell_mode = processed_image.mode
-                    cell_size = processed_image.size
-                    processed_result.images = [Image.new(cell_mode, cell_size)]
-
-                image_cache.append(processed_image)
-                if include_lone_images:
-                    processed_result.images.append(processed_image)
-                    processed_result.all_prompts.append(processed.prompt)
-                    processed_result.all_seeds.append(processed.seed)
-                    processed_result.infotexts.append(processed.infotexts[0])
-            except:
-                image_cache.append(Image.new(cell_mode, cell_size))
+            for iy, y in enumerate(ys):
+                process_cell(x, y, ix, iy)
+    else:
+        for iy, y in enumerate(ys):
+            for ix, x in enumerate(xs):
+                process_cell(x, y, ix, iy)
 
     if not processed_result:
         print("Unexpected error: draw_xy_grid failed to return even a single processed image")
@@ -266,12 +277,12 @@ class SharedSettingsStackHelper(object):
     def __enter__(self):
         self.CLIP_stop_at_last_layers = opts.CLIP_stop_at_last_layers
         self.hypernetwork = opts.sd_hypernetwork
-        self.model = shared.sd_model
         self.vae = opts.sd_vae
   
     def __exit__(self, exc_type, exc_value, tb):
-        modules.sd_models.reload_model_weights(self.model)
-        modules.sd_vae.reload_vae_weights(self.model, vae_file=find_vae(self.vae))
+        opts.data["sd_vae"] = self.vae
+        modules.sd_models.reload_model_weights()
+        modules.sd_vae.reload_vae_weights()
 
         hypernetwork.load_hypernetwork(self.hypernetwork)
         hypernetwork.apply_strength()
@@ -294,16 +305,27 @@ class Script(scripts.Script):
         current_axis_options = [x for x in axis_options if type(x) == AxisOption or type(x) == AxisOptionImg2Img and is_img2img]
 
         with gr.Row():
-            x_type = gr.Dropdown(label="X type", choices=[x.label for x in current_axis_options], value=current_axis_options[1].label, type="index", elem_id=self.elem_id("x_type"))
-            x_values = gr.Textbox(label="X values", lines=1, elem_id=self.elem_id("x_values"))
+            with gr.Column(scale=1, elem_id="xy_grid_button_column"):
+                swap_axes_button = gr.Button(value=up_down_arrow_symbol, elem_id="xy_grid_swap_axes")
+            with gr.Column(scale=19):
+                with gr.Row():
+                    x_type = gr.Dropdown(label="X type", choices=[x.label for x in current_axis_options], value=current_axis_options[1].label, type="index", elem_id=self.elem_id("x_type"))
+                    x_values = gr.Textbox(label="X values", lines=1, elem_id=self.elem_id("x_values"))
 
-        with gr.Row():
-            y_type = gr.Dropdown(label="Y type", choices=[x.label for x in current_axis_options], value=current_axis_options[0].label, type="index", elem_id=self.elem_id("y_type"))
-            y_values = gr.Textbox(label="Y values", lines=1, elem_id=self.elem_id("y_values"))
+                with gr.Row():
+                    y_type = gr.Dropdown(label="Y type", choices=[x.label for x in current_axis_options], value=current_axis_options[0].label, type="index", elem_id=self.elem_id("y_type"))
+                    y_values = gr.Textbox(label="Y values", lines=1, elem_id=self.elem_id("y_values"))
         
         draw_legend = gr.Checkbox(label='Draw legend', value=True, elem_id=self.elem_id("draw_legend"))
         include_lone_images = gr.Checkbox(label='Include Separate Images', value=False, elem_id=self.elem_id("include_lone_images"))
         no_fixed_seeds = gr.Checkbox(label='Keep -1 for seeds', value=False, elem_id=self.elem_id("no_fixed_seeds"))
+
+        def swap_axes(x_type, x_values, y_type, y_values):
+            nonlocal current_axis_options
+            return current_axis_options[y_type].label, y_values, current_axis_options[x_type].label, x_values
+
+        swap_args = [x_type, x_values, y_type, y_values]
+        swap_axes_button.click(swap_axes, inputs=swap_args, outputs=swap_args)
 
         return [x_type, x_values, y_type, y_values, draw_legend, include_lone_images, no_fixed_seeds]
 
@@ -406,7 +428,15 @@ class Script(scripts.Script):
 
         grid_infotext = [None]
 
+        # If one of the axes is very slow to change between (like SD model
+        # checkpoint), then make sure it is in the outer iteration of the nested
+        # `for` loop.
+        swap_axes_processing_order = x_opt.cost > y_opt.cost
+
         def cell(x, y):
+            if shared.state.interrupted:
+                return Processed(p, [], p.seed, "")
+
             pc = copy(p)
             x_opt.apply(pc, x, xs)
             y_opt.apply(pc, y, ys)
@@ -441,7 +471,8 @@ class Script(scripts.Script):
                 y_labels=[y_opt.format_value(p, y_opt, y) for y in ys],
                 cell=cell,
                 draw_legend=draw_legend,
-                include_lone_images=include_lone_images
+                include_lone_images=include_lone_images,
+                swap_axes_processing_order=swap_axes_processing_order
             )
 
         if opts.grid_save:
