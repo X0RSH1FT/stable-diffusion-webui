@@ -31,3 +31,4 @@ GitPython
 torchsde
 safetensors
 psutil
+moviepy==1.0.3
