@@ -3,6 +3,7 @@ import os.path
 from modules import shared
 import gradio as gr
 import json
+import html
 
 from modules.generation_parameters_copypaste import image_from_url_text
 
@@ -26,6 +27,7 @@ class ExtraNetworksPage:
         pass
 
     def create_html(self, tabname):
+        view = shared.opts.extra_networks_default_view
         items_html = ''
 
         for item in self.list_items():
@@ -36,7 +38,7 @@ class ExtraNetworksPage:
             items_html = shared.html("extra-networks-no-cards.html").format(dirs=dirs)
 
         res = f"""
-<div id='{tabname}_{self.name}_cards' class='extra-network-cards'>
+<div id='{tabname}_{self.name}_cards' class='extra-network-{view}'>
 {items_html}
 </div>
 """
@@ -53,12 +55,13 @@ class ExtraNetworksPage:
         preview = item.get("preview", None)
 
         args = {
-            "preview_html": "style='background-image: url(" + json.dumps(preview) + ")'" if preview else '',
+            "preview_html": "style='background-image: url(\"" + html.escape(preview) + "\")'" if preview else '',
             "prompt": item["prompt"],
             "tabname": json.dumps(tabname),
             "local_preview": json.dumps(item["local_preview"]),
             "name": item["name"],
-            "allow_negative_prompt": "true" if self.allow_negative_prompt else "false",
+            "card_clicked": '"' + html.escape(f"""return cardClicked({json.dumps(tabname)}, {item["prompt"]}, {"true" if self.allow_negative_prompt else "false"})""") + '"',
+            "save_card_preview": '"' + html.escape(f"""return saveCardPreview(event, {json.dumps(tabname)}, {json.dumps(item["local_preview"])})""") + '"',
         }
 
         return self.card_page.format(**args)
@@ -114,8 +117,13 @@ def create_ui(container, button, tabname):
     ui.button_save_preview = gr.Button('Save preview', elem_id=tabname+"_save_preview", visible=False)
     ui.preview_target_filename = gr.Textbox('Preview save filename', elem_id=tabname+"_preview_filename", visible=False)
 
-    button.click(fn=lambda: gr.update(visible=True), inputs=[], outputs=[container])
-    button_close.click(fn=lambda: gr.update(visible=False), inputs=[], outputs=[container])
+    def toggle_visibility(is_visible):
+        is_visible = not is_visible
+        return is_visible, gr.update(visible=is_visible)
+
+    state_visible = gr.State(value=False)
+    button.click(fn=toggle_visibility, inputs=[state_visible], outputs=[state_visible, container])
+    button_close.click(fn=toggle_visibility, inputs=[state_visible], outputs=[state_visible, container])
 
     def refresh():
         res = []
