@@ -3,6 +3,6 @@
 set PYTHON=
 set GIT=
 set VENV_DIR=
-set COMMANDLINE_ARGS=--listen --api --cors-allow-origins=*
+set COMMANDLINE_ARGS=--listen --api --cors-allow-origins=http://omnius:3456 --no-half
 
 call webui.bat
